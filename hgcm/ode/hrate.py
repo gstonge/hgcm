@@ -46,17 +46,17 @@ def get_state_meta(mmax, nmax, ymax, rate, qm, pyn):
 
 
 @jit(nopython=True)
-def flatten(Sm,Gyni,state_meta):
+def flatten(Im,Sm,Gyni,state_meta):
     nmax = state_meta[1]
     ymax = state_meta[2]
-    return np.concatenate((Sm,Gyni.reshape((ymax+1)*(nmax+1)**2)))
+    return np.concatenate((Im,Sm,Gyni.reshape((ymax+1)*(nmax+1)**2)))
 
 
 def unflatten(v,state_meta):
     mmax = state_meta[0]
     nmax = state_meta[1]
     ymax = state_meta[2]
-    return v[:mmax+1],v[mmax+1:].reshape((ymax+1,nmax+1,nmax+1))
+    return v[:mmax+1],v[mmax+1:2*mmax+2],v[2*mmax+2:].reshape((ymax+1,nmax+1,nmax+1))
 
 
 def initialize(state_meta, initial_density=0.5):
@@ -78,15 +78,19 @@ def initialize(state_meta, initial_density=0.5):
     pyn = state_meta[7]
 
     Sm = np.zeros(mmax+1)
+    Im = np.zeros(mmax+1)
     Gyni = np.zeros((ymax+1,nmax+1,nmax+1))
     #initialize nodes
     Sm += (1-initial_density)*qm
+    Im += initial_density*qm
+
     #initialize groups
     for y in range(0,ymax+1):
         for n in range(2, nmax+1):
             pmf = binom.pmf(np.arange(n+1,dtype=int),n,initial_density)
             Gyni[y,n,:n+1] = pmf*pyn[y,n]
-    return Sm,Gyni
+
+    return Im,Sm,Gyni
 
 @jit(nopython=True)
 def get_rho(Sm, Gyni, state_meta):
@@ -104,10 +108,11 @@ def get_rho(Sm, Gyni, state_meta):
     return rho
 
 
-def advance(Sm, Gyni, tvar, state_meta):
+def advance(Im, Sm, Gyni, tvar, state_meta):
     """advance integrates the ODE starting from a certain initial state and
     returns the new state.
 
+    :param Im: array of shape (1,mmax+1) representing the nodes state.
     :param Sm: array of shape (1,mmax+1) representing the nodes state.
     :param Gyni: array of shape (nmax+1,nmax+1) representing the groups state.
     :param tvar: float for time variation.
@@ -115,7 +120,7 @@ def advance(Sm, Gyni, tvar, state_meta):
 
     return (Sm,Gyni): tuple of state arrays later in time
     """
-    v = flatten(Sm,Gyni,state_meta)
+    v = flatten(Im,Sm,Gyni,state_meta)
     t = np.linspace(0,tvar)
     vvec = odeint(vector_field,v,t,args=(state_meta,))
     return unflatten(vvec[-1],state_meta)
@@ -126,7 +131,7 @@ def advance(Sm, Gyni, tvar, state_meta):
 def vector_field(v, t, state_meta, model='SIS'):
     """vector_field returns the temporal derivative of a flatten state vector
 
-    :param v: array of shape (1,mmax+1+(nmax+1)**2) for the flatten state vector
+    :param v: array of shape (1,2*mmax+1+(nmax+1)**2) for the flatten state vector
     :param t: float for time (unused)
     :param state_meta: tuple of arrays encoding information of the structure.
 
@@ -144,9 +149,11 @@ def vector_field(v, t, state_meta, model='SIS'):
     ratetens = state_meta[11]
 
     #unflatten
-    Sm = v[:mmax+1]
-    Gyni = v[mmax+1:].reshape(ymax+1,nmax+1,nmax+1)
+    Im = v[:mmax+1]
+    Sm = v[mmax+1:2*mmax+2]
+    Gyni = v[2*mmax+2:].reshape(ymax+1,nmax+1,nmax+1)
     Gyni_field = np.zeros(Gyni.shape) #tensor field
+    Im_field = np.zeros(Im.shape)
     Sm_field = np.zeros(Sm.shape)
 
     #calculate mean-field quantities
@@ -156,6 +163,7 @@ def vector_field(v, t, state_meta, model='SIS'):
 
     #contribution for nodes
     #------------------------
+    Im_field = Sm*m*r - Im
     if model=='SIS':
         Sm_field = qm - Sm - Sm*m*r
     if model=='SIR':
@@ -173,5 +181,5 @@ def vector_field(v, t, state_meta, model='SIS'):
     Gyni_field[:,:,1:] += ((ntens[:,:,:nmax] - itens[:,:,:nmax])
                             *(ratetens[:,:,:nmax]*itens[:,:,:nmax]
                               + rho))*Gyni[:,:,:nmax]
-    return np.concatenate((Sm_field,Gyni_field.reshape((ymax+1)*(nmax+1)**2)))
+    return np.concatenate((Im_field,Sm_field,Gyni_field.reshape((ymax+1)*(nmax+1)**2)))
 

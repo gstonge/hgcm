@@ -15,6 +15,16 @@ def prevalence_from_incidence(incidence,t):
         Ivec[j+1] = Ivec[j]*np.exp(-dt) + (Svec[j]-Svec[j+1])
     return Ivec
 
+def incidence_rate_from_incidence(incidence,t):
+    dt = t[1]-t[0]
+    Svec = 1 - np.array(incidence)
+    inc_rate = np.zeros(Svec.shape)
+    inc_rate[0] = 0
+    for j in range(len(t)-1):
+        inc_rate[j+1] = (incidence[j+1]-incidence[j])/dt
+    return inc_rate
+
+
 @jit(nopython=True)
 def excess_susceptible_membership(m,Sm):
     """excess_susceptible_membership return the average membership of a

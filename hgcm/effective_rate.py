@@ -6,7 +6,7 @@ from numba import jit
 
 @jit(nopython=True)
 def get_Gyni(rate,rho,ymax,nmax,pyn):
-    """get_cyni returns the stationary cyni (only for the SIS model)
+    """get_Gyni returns the stationary Gyni (only for the SIS model)
 
     :param rate: array for the infection rate of length ymax+1
     :param rho: float for mean-field term
@@ -169,7 +169,7 @@ def qs_vector_field(v, t, state_meta, rate, pyn, ymax, rho0=10**(-3),
     ***Important : to be used with nlrate module, be careful at import for
     conflicts***
 
-    :param v: array of shape (1,mmax+1+(nmax+1)**2) for the flatten state vector
+    :param v: array of shape (1,2*mmax+2+(nmax+1)**2) for the flatten state vector
     :param t: float for time (unused)
     :param state_meta: tuple of arrays encoding information of the structure.
     :param rate: array for the infection rate of length ymax+1
@@ -178,7 +178,7 @@ def qs_vector_field(v, t, state_meta, rate, pyn, ymax, rho0=10**(-3),
     :param rho0: initial rho for iteration
     :param it: maximum number of iteration
 
-    :returns vec_field: array of shape (1,(nmax+1)**2) for the flatten
+    :returns vec_field: array of shape (1,2*mmax+2+(nmax+1)**2) for the flatten
                         vector field.
     """
     mmax = state_meta[0]
@@ -189,10 +189,12 @@ def qs_vector_field(v, t, state_meta, rate, pyn, ymax, rho0=10**(-3),
     imat = state_meta[5]
     nmat = state_meta[6]
     pnmat = state_meta[7]
-    Sm = v[:mmax+1]
-    Gni = v[mmax+1:mmax+1+(nmax+1)**2].reshape(nmax+1,nmax+1)
+    Im = v[:mmax+1]
+    Sm = v[mmax+1:2*mmax+2]
+    Gni = v[2*mmax+2:].reshape(nmax+1,nmax+1)
 
     dGni = np.zeros(Gni.shape) #matrix field
+    dIm = np.zeros(Im.shape)
     dSm = np.zeros(Sm.shape)
 
     #get infection matrix through convergence
@@ -209,6 +211,7 @@ def qs_vector_field(v, t, state_meta, rate, pyn, ymax, rho0=10**(-3),
 
     #contribution for nodes
     #------------------------
+    dIm = Sm*m*r - Im
     dSm = qm - Sm - Sm*m*r
 
     #contribution for cliques
@@ -223,4 +226,4 @@ def qs_vector_field(v, t, state_meta, rate, pyn, ymax, rho0=10**(-3),
     dGni[2:,1:nmax+1] += ((nmat[2:,:nmax] - imat[2:,:nmax])
                                *(inf_mat[2:,:nmax] + rho))*Gni[2:,:nmax]
 
-    return np.concatenate((dSm,dGni.reshape((nmax+1)**2)))
+    return np.concatenate((dIm,dSm,dGni.reshape((nmax+1)**2)))

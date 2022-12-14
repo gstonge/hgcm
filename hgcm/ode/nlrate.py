@@ -31,15 +31,15 @@ def get_state_meta(mmax, nmax, qm, pn):
 
 
 @jit(nopython=True)
-def flatten(Sm,Gni,state_meta):
+def flatten(Im,Sm,Gni,state_meta):
     nmax = state_meta[1]
-    return np.concatenate((Sm,Gni.reshape((nmax+1)**2)))
+    return np.concatenate((Im,Sm,Gni.reshape((nmax+1)**2)))
 
 
 def unflatten(v,state_meta):
     mmax = state_meta[0]
     nmax = state_meta[1]
-    return v[:mmax+1],v[mmax+1:].reshape((nmax+1,nmax+1))
+    return v[:mmax+1],v[mmax+1:2*mmax+2],v[2*mmax+2:].reshape((nmax+1,nmax+1))
 
 
 def initialize(state_meta, initial_density=0.5):
@@ -59,22 +59,25 @@ def initialize(state_meta, initial_density=0.5):
     qm = state_meta[3]
     pn = state_meta[4]
 
+    Im = np.zeros(mmax+1)
     Sm = np.zeros(mmax+1)
     Gni = np.zeros((nmax+1,nmax+1))
     #initialize nodes
     Sm += qm*(1-initial_density)
+    Im += qm*initial_density
     #initialize groups
     for n in range(2, nmax+1):
         pmf = binom.pmf(np.arange(n+1,dtype=int),n,initial_density)
         Gni[n][:n+1] = pmf*pn[n]
-    return Sm,Gni
+    return Im,Sm,Gni
 
 
 
-def advance(Sm, Gni, tvar, inf_mat, state_meta):
+def advance(Im, Sm, Gni, tvar, inf_mat, state_meta):
     """advance integrates the ODE starting from a certain initial state and
     returns the new state.
 
+    :param Im: array of shape (1,mmax+1) representing the nodes state.
     :param Sm: array of shape (1,mmax+1) representing the nodes state.
     :param Gni: array of shape (nmax+1,nmax+1) representing the groups state.
     :param tvar: float for time variation.
@@ -84,7 +87,7 @@ def advance(Sm, Gni, tvar, inf_mat, state_meta):
 
     return (Sm,Gni): tuple of state arrays later in time
     """
-    v = flatten(Sm,Gni,state_meta)
+    v = flatten(Im,Sm,Gni,state_meta)
     t = np.linspace(0,tvar)
     vvec = odeint(vector_field,v,t,args=(inf_mat,state_meta))
     return unflatten(vvec[-1],state_meta)
@@ -113,8 +116,9 @@ def vector_field(v, t, inf_mat, state_meta, model='SIS'):
     pnmat = state_meta[7]
 
     #unflatten
-    Sm = v[:mmax+1]
-    Gni = v[mmax+1:].reshape(nmax+1,nmax+1)
+    Im = v[:mmax+1]
+    Sm = v[mmax+1:2*mmax+2]
+    Gni = v[2*mmax+2:].reshape(nmax+1,nmax+1)
     Gni_field = np.zeros(Gni.shape) #matrix field
     Sm_field = np.zeros(Sm.shape)
 
@@ -125,6 +129,7 @@ def vector_field(v, t, inf_mat, state_meta, model='SIS'):
 
     #contribution for nodes
     #------------------------
+    Im_field = Sm*m*r - Im
     if model=='SIS':
         Sm_field = qm - Sm - Sm*m*r
     if model=='SIR':
@@ -144,5 +149,5 @@ def vector_field(v, t, inf_mat, state_meta, model='SIS'):
     #contribution from below
     Gni_field[:,1:nmax+1] += ((nmat[:,:nmax] - imat[:,:nmax])
                                *(inf_mat[:,:nmax] + rho))*Gni[:,:nmax]
-    return np.concatenate((Sm_field,Gni_field.reshape((nmax+1)**2)))
+    return np.concatenate((Im_field,Sm_field,Gni_field.reshape((nmax+1)**2)))
 
