@@ -98,6 +98,70 @@ def get_leading_eigenvector(excess_membership, rate, pn, pyn, ymax, nmax, nb_ite
 
 
 @jit(nopython=True)
+def leading_eigenv(excess_membership, rate, pn, pyn, ymax, nmax, vyni=None, rtol=10**(-6), verbose=False,
+                            alpha=0.01, model='SIS'):
+    """leading_eigenv returns the leading eigenvector and eigenvalue of the
+    Jacobian matrix linearized at the absorbing state using the power method.
+
+    :param excess_membership: float for <m(m-1)>/<m>
+    :param rate: array for the infection rate of length ymax+1
+    :param pn: array for the group size distribution of length nmax+1
+    :param pyn: array for the joint rate and group size distribution of dimension (ymax+1,nmax+1)
+    :param ymax: maximal rate index, fixes linear discretization
+    :param nmax: maximal group size >= 2
+    """
+    nmean = np.sum(pn*np.arange(nmax+1))
+    if vyni is None:
+        vyni = np.random.random((ymax+1,nmax+1,nmax+1)) #leading eigenvector
+        for n in range(len(pn)):
+            if pn[n] == 0:
+                vyni[:,n,:] = 0 #initialize at zero?
+    ev = None #eigenvalue estimate
+    #power method begins
+    converged = False
+
+    nb_iter = 0
+    while not converged:
+        #calculate mean-field quantity
+        psi = 0
+        for n in range(nmax+1):
+            for i in range(1,n):
+                psi += np.sum(rate*i*(n-i)*vyni[:,n,i])
+        psi *= excess_membership/nmean
+        #calculate new eigenvector
+        new_vyni = np.zeros((ymax+1,nmax+1,nmax+1))
+        for n in range(0,nmax+1):
+            for i in range(0,n+1):
+                new_vyni[:,n,i] -= (i + rate*i*(n-i))*vyni[:,n,i]
+                if i > 1:
+                    new_vyni[:,n,i] += rate*(i-1)*(n-i+1)*vyni[:,n,i-1]
+                if i < n and model == 'SIS':
+                    new_vyni[:,n,i] += (i+1)*vyni[:,n,i+1]
+                if n < nmax and model == 'SIR':
+                    new_vyni[:,n,i] += (i+1)*vyni[:,n+1,i+1]
+                if i == 1:
+                    new_vyni[:,n,i] += n*psi*pyn[:,n]
+                if i == 0:
+                    new_vyni[:,n,i] -= n*psi*pyn[:,n]
+        #estimate ev
+        new_ev = np.sum(vyni*new_vyni)
+        if verbose:
+            print(new_ev)
+        #renormalize and reassign
+        new_vyni = new_vyni/np.sqrt(np.sum(new_vyni*new_vyni))
+        vyni = alpha*new_vyni + vyni
+        vyni = vyni/np.sqrt(np.sum(vyni*vyni)) #renormalize again?
+
+        if (ev is not None and nb_iter > 1000 and abs((new_ev-ev)/ev) < rtol) or nb_iter > 10000:
+            converged = True
+        ev = new_ev
+        nb_iter += 1
+
+    return vyni,ev
+
+
+
+@jit(nopython=True)
 def stationary_effective_rate(rate,rho,pyn,ymax,nmax):
     """stationary_effective_rate returns the stationary effective rate for a
     given rho and joint rate distribution pyn (SIS model only).
